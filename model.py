@@ -1,16 +1,17 @@
+import argparse
 import csv
 import cv2
 import numpy as np
 import os
+import random
 
 from keras import backend as K
+from keras.callbacks import EarlyStopping, TensorBoard
 from keras.models import Sequential
+from keras.optimizers import Adam
 from keras.layers import Cropping2D, Dense, Flatten, Lambda, Dropout
 from keras.layers.convolutional import Conv2D
 from keras.layers.pooling import MaxPooling2D 
-
-#K.set_floatx('float32')
-print("floatx=", K.floatx())
 
 if os.getcwd() == '/code':
     print('on floydhub')
@@ -21,13 +22,17 @@ else:
     input_dir = './data'
     output_dir = '.'
 
-epochs=5
-batch_size=32
+parser = argparse.ArgumentParser()
+parser.add_argument('--batch-size', type=int, default=32)
+parser.add_argument('--epochs', type=int, default=5)
+args = parser.parse_args()
+
+epochs = args.epochs
+batch_size = args.batch_size
 
 model_file = output_dir + '/model.h5'
 
 def create_simple(model):
-    #model.add(Conv2D(32, 3, 3, activation='relu'))
     model.add(Flatten())
     model.add(Dense(1))
 
@@ -40,6 +45,16 @@ def create_lenet(model):
     model.add(Dropout(0.5))
     model.add(Dense(120))
     model.add(Dense(84))
+    model.add(Dense(1))
+
+def create_newnet(model):
+    #model.add(Conv2D(1, 3, 3, activation='relu'))
+    model.add(Conv2D(16, 3, 3, activation='relu'))
+    model.add(Conv2D(16, 3, 3, activation='relu'))
+    model.add(MaxPooling2D((2,2)))
+    model.add(Flatten())
+    model.add(Dropout(0.5))
+    model.add(Dense(32))
     model.add(Dense(1))
 
 samples = []
@@ -70,8 +85,13 @@ def generator(samples, batch_size=32):
                 filename = batch_sample[0].split('/')[-1]
                 #print('loading: ', filename)
                 file_path = input_dir + '/IMG/' + filename
-                center_image = cv2.imread(file_path)
-                center_angle = float(batch_sample[3])
+                # randomly flip the images for data augmentation
+                if random.random() < 0.5:
+                    center_image = np.fliplr(cv2.imread(file_path))
+                    center_angle = -float(batch_sample[3])
+                else:
+                    center_image = cv2.imread(file_path)
+                    center_angle = float(batch_sample[3])
                 #print(file_path, center_angle, center_image.shape, center_image[0][:10])
                 images.append(center_image)
                 angles.append(center_angle)
@@ -86,21 +106,31 @@ train_generator = generator(train_samples, batch_size=batch_size)
 validation_generator = generator(validation_samples, batch_size=batch_size)
 
 input_shape=(160,320,3)
-print('input_shape=', input_shape)
+print('input_shape:', input_shape)
+print('epochs:', epochs)
+print('batch size:', batch_size)
 
 model = Sequential()
-model.add(Cropping2D(cropping=((64,16), (0,0)), input_shape=input_shape))
+model.add(Cropping2D(cropping=((72,20), (0,0)), input_shape=input_shape))
 model.add(Lambda(lambda x: (x / 255.0) - 0.5))
 
-create_lenet(model)
+#create_simple(model)
+#create_lenet(model)
+create_newnet(model)
 
 model.summary()
 
-model.compile(loss='mse', optimizer='adam')
+optimizer = Adam(lr=0.0001)
+model.compile(loss='mse', optimizer=optimizer)
+
+es = EarlyStopping(monitor='val_loss', patience=0)
+#tb = TensorBoard(log_dir=output_dir + '/logs', histogram_freq=1, write_graph=True, write_images=True)
+callbacks = [es]
 
 model.fit_generator(train_generator, samples_per_epoch=len(train_samples),
         validation_data=validation_generator,
-        nb_val_samples=len(validation_samples), nb_epoch=epochs)
+        nb_val_samples=len(validation_samples), nb_epoch=epochs,
+        callbacks=callbacks)
 
 model.save(model_file)
 
