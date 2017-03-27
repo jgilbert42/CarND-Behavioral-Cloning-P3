@@ -48,14 +48,20 @@ def create_lenet(model):
     model.add(Dense(1))
 
 def create_newnet(model):
-    #model.add(Conv2D(1, 3, 3, activation='relu'))
-    model.add(Conv2D(16, 3, 3, activation='relu'))
-    model.add(Conv2D(16, 3, 3, activation='relu'))
+    model.add(Conv2D(1, 3, 3, border_mode='same', activation='relu'))
+    model.add(Conv2D(8, 3, 3, border_mode='same', activation='relu'))
+#    model.add(Conv2D(8, 3, 3, activation='relu'))
     model.add(MaxPooling2D((2,2)))
     model.add(Flatten())
     model.add(Dropout(0.5))
     model.add(Dense(32))
     model.add(Dense(1))
+
+class Sample:
+    def __init__(self, filename, angle, flip=False):
+        self.filename = filename 
+        self.angle = float(angle)
+        self.flip = bool(flip)
 
 samples = []
 with open(input_dir + '/driving_log.csv') as csvfile:
@@ -64,8 +70,9 @@ with open(input_dir + '/driving_log.csv') as csvfile:
         if line[0] == 'center':
             print('skipping header row', line)
             continue
-
-        samples.append(line)
+        filename = line[0].split('/')[-1]
+        samples.append(Sample(filename, float(line[3])))
+        samples.append(Sample(filename, float(line[3]), True))
 
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
@@ -82,16 +89,16 @@ def generator(samples, batch_size=32):
             images = []
             angles = []
             for batch_sample in batch_samples:
-                filename = batch_sample[0].split('/')[-1]
-                #print('loading: ', filename)
-                file_path = input_dir + '/IMG/' + filename
+                #print('loading:', batch_sample.filename, ', angle:', batch_sample.angle, ', flip:', batch_sample.flip)
+                file_path = input_dir + '/IMG/' + batch_sample.filename
                 # randomly flip the images for data augmentation
-                if random.random() < 0.5:
+                if batch_sample.flip:
                     center_image = np.fliplr(cv2.imread(file_path))
-                    center_angle = -float(batch_sample[3])
+                    center_angle = -float(batch_sample.angle)
                 else:
                     center_image = cv2.imread(file_path)
-                    center_angle = float(batch_sample[3])
+                    center_angle = float(batch_sample.angle)
+
                 #print(file_path, center_angle, center_image.shape, center_image[0][:10])
                 images.append(center_image)
                 angles.append(center_angle)
@@ -111,7 +118,7 @@ print('epochs:', epochs)
 print('batch size:', batch_size)
 
 model = Sequential()
-model.add(Cropping2D(cropping=((72,20), (0,0)), input_shape=input_shape))
+model.add(Cropping2D(cropping=((64,0), (0,0)), input_shape=input_shape))
 model.add(Lambda(lambda x: (x / 255.0) - 0.5))
 
 #create_simple(model)
