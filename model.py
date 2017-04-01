@@ -4,31 +4,44 @@ import cv2
 import numpy as np
 import os
 import random
+import time
 
-from keras import backend as K
 from keras.callbacks import EarlyStopping, TensorBoard
 from keras.models import Sequential
-from keras.optimizers import Adam
 from keras.layers import Cropping2D, Dense, Flatten, Lambda, Dropout
 from keras.layers.convolutional import Conv2D
 from keras.layers.pooling import MaxPooling2D 
+from keras.optimizers import Adam
 
+# udacity data: hcXxcX5zKqFGYxHaGvat3N
+# data 2: cy722Tfo9rAYrhGvPmMhwi
 if os.getcwd() == '/code':
     print('on floydhub')
     input_dir = '/input';
     output_dir = '/output';
+    fit_verbose = 2
+    cache_images = True
 else:
     print('on macbook')
     input_dir = './data'
     output_dir = '.'
+    fit_verbose = 1
+    cache_images = False
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch-size', type=int, default=32)
 parser.add_argument('--epochs', type=int, default=5)
+parser.add_argument('--samples-per-epoch', type=int, default=0)
+parser.add_argument('--input-dir', type=str, default=None)
 args = parser.parse_args()
 
 epochs = args.epochs
 batch_size = args.batch_size
+samples_per_epoch = args.samples_per_epoch
+if args.input_dir:
+    input_dir = args.input_dir
+
+print('input dir:', input_dir)
 
 model_file = output_dir + '/model.h5'
 
@@ -42,19 +55,22 @@ def create_lenet(model):
     model.add(Conv2D(16, 5, 5, activation='relu'))
     model.add(MaxPooling2D())
     model.add(Flatten())
-    model.add(Dropout(0.5))
+#    model.add(Dropout(0.5))
     model.add(Dense(120))
     model.add(Dense(84))
     model.add(Dense(1))
 
-def create_newnet(model):
-    model.add(Conv2D(1, 3, 3, border_mode='same', activation='relu'))
-    model.add(Conv2D(8, 3, 3, border_mode='same', activation='relu'))
-#    model.add(Conv2D(8, 3, 3, activation='relu'))
-    model.add(MaxPooling2D((2,2)))
-    model.add(Flatten())
+def create_nvidia(model):
     model.add(Dropout(0.5))
-    model.add(Dense(32))
+    model.add(Conv2D(24, 5, 5, subsample=(2,2), activation='relu'))
+    model.add(Conv2D(36, 5, 5, subsample=(2,2), activation='relu'))
+    model.add(Conv2D(48, 5, 5, subsample=(2,2), activation='relu'))
+    model.add(Conv2D(64, 3, 3, activation='relu'))
+    model.add(Conv2D(64, 3, 3, activation='relu'))
+    model.add(Flatten())
+    model.add(Dense(100))
+    model.add(Dense(50))
+    model.add(Dense(10))
     model.add(Dense(1))
 
 class Sample:
@@ -63,20 +79,49 @@ class Sample:
         self.angle = float(angle)
         self.flip = bool(flip)
 
+image_cache = {}
+
+def load_image(filename):
+    file_path = input_dir + '/IMG/' + filename
+    return cv2.imread(file_path)
+
+def get_image(filename):
+    if cache_images:
+        if filename not in image_cache:
+            image_cache[filename] = load_image(filename)
+
+        return image_cache[filename]
+    else:
+        return load_image(filename)
+
 samples = []
+
+def add_sample(filename, angle):
+    #print('add sample(filename: ', filename, ', angle:', angle)
+    samples.append(Sample(filename, angle))
+    samples.append(Sample(filename, angle, True))
+
+print('loading images')
+start_time = time.time()
 with open(input_dir + '/driving_log.csv') as csvfile:
     reader = csv.reader(csvfile)
+    cam_offset = 0.2
     for line in reader:
         if line[0] == 'center':
-            print('skipping header row', line)
+            #print('skipping header row', line)
             continue
-        filename = line[0].split('/')[-1]
-        samples.append(Sample(filename, float(line[3])))
-        samples.append(Sample(filename, float(line[3]), True))
 
-from sklearn.model_selection import train_test_split
-from sklearn.utils import shuffle
-train_samples, validation_samples = train_test_split(samples, test_size=0.2)
+        angle = float(line[3])
+
+        # center
+        add_sample(line[0].split('/')[-1], angle)
+        # left
+        #add_sample(line[1].split('/')[-1], angle + cam_offset)
+        # right
+        #add_sample(line[2].split('/')[-1], angle - cam_offset)
+
+
+print('done loading images, {} samples, elapsed {:.3f}'.format(len(samples), time.time() - start_time))
 
 def generator(samples, batch_size=32):
     num_samples = len(samples)
@@ -92,12 +137,13 @@ def generator(samples, batch_size=32):
                 #print('loading:', batch_sample.filename, ', angle:', batch_sample.angle, ', flip:', batch_sample.flip)
                 file_path = input_dir + '/IMG/' + batch_sample.filename
                 # randomly flip the images for data augmentation
+                #center_image = cv2.imread(file_path)
+                center_image = get_image(batch_sample.filename)
+                center_angle = float(batch_sample.angle)
+
                 if batch_sample.flip:
-                    center_image = np.fliplr(cv2.imread(file_path))
-                    center_angle = -float(batch_sample.angle)
-                else:
-                    center_image = cv2.imread(file_path)
-                    center_angle = float(batch_sample.angle)
+                    center_image = np.fliplr(center_image)
+                    center_angle = -center_angle
 
                 #print(file_path, center_angle, center_image.shape, center_image[0][:10])
                 images.append(center_image)
@@ -109,6 +155,19 @@ def generator(samples, batch_size=32):
             yield X_train, y_train
 
 
+from sklearn.model_selection import train_test_split
+from sklearn.utils import shuffle
+train_samples, validation_samples = train_test_split(samples, test_size=0.2)
+
+if samples_per_epoch:
+    val_samples = int(samples_per_epoch/4)
+else:
+    samples_per_epoch = len(train_samples)
+    val_samples = len(validation_samples)
+
+print('samples per epoch:', samples_per_epoch)
+print('validation samples:', val_samples)
+
 train_generator = generator(train_samples, batch_size=batch_size)
 validation_generator = generator(validation_samples, batch_size=batch_size)
 
@@ -118,26 +177,28 @@ print('epochs:', epochs)
 print('batch size:', batch_size)
 
 model = Sequential()
-model.add(Cropping2D(cropping=((64,0), (0,0)), input_shape=input_shape))
+model.add(Cropping2D(cropping=((64,30), (0,0)), input_shape=input_shape))
 model.add(Lambda(lambda x: (x / 255.0) - 0.5))
 
 #create_simple(model)
 #create_lenet(model)
-create_newnet(model)
+#create_jnet(model)
+create_nvidia(model)
 
 model.summary()
 
-optimizer = Adam(lr=0.0001)
-model.compile(loss='mse', optimizer=optimizer)
+model.compile(loss='mse', optimizer='adam')
 
 es = EarlyStopping(monitor='val_loss', patience=0)
-#tb = TensorBoard(log_dir=output_dir + '/logs', histogram_freq=1, write_graph=True, write_images=True)
+#tb = TensorBoard(log_dir=output_dir + '/logs', histogram_freq=1, write_graph=False, write_images=True)
 callbacks = [es]
 
-model.fit_generator(train_generator, samples_per_epoch=len(train_samples),
+# do multiple runs with a variety of hyperparams in one execution
+
+model.fit_generator(train_generator, samples_per_epoch=samples_per_epoch,
         validation_data=validation_generator,
-        nb_val_samples=len(validation_samples), nb_epoch=epochs,
-        callbacks=callbacks)
+        nb_val_samples=val_samples, nb_epoch=epochs,
+        callbacks=callbacks, verbose=fit_verbose)
 
 model.save(model_file)
 

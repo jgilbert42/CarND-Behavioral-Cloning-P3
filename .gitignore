@@ -1,2 +1,7 @@
 data
+data3
+floyd-data2
 *.swp
+.floydexpt
+.floydignore
+.DS_Store
