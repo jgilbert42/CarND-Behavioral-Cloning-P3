@@ -13,12 +13,13 @@ from keras.layers.convolutional import Conv2D
 from keras.layers.pooling import MaxPooling2D 
 from keras.optimizers import Adam
 
+# switch a few variables based on running locally or on floydhub
 # udacity data: hcXxcX5zKqFGYxHaGvat3N
 # data 2: cy722Tfo9rAYrhGvPmMhwi
 if os.getcwd() == '/code':
     print('on floydhub')
-    input_dir = '/input';
-    output_dir = '/output';
+    input_dir = '/input'
+    output_dir = '/output'
     fit_verbose = 2
     cache_images = True
 else:
@@ -85,6 +86,8 @@ def load_image(filename):
     file_path = input_dir + '/IMG/' + filename
     return cv2.imread(file_path)
 
+# get and image and optionally cache.  Caching images was implemented to work around a slow
+# data network on floydhub.
 def get_image(filename):
     if cache_images:
         if filename not in image_cache:
@@ -96,6 +99,8 @@ def get_image(filename):
 
 samples = []
 
+# add a sample to the list with both regular and flipped image and angle.  This
+# is to avoid loading duplicate images all at once.
 def add_sample(filename, angle):
     #print('add sample(filename: ', filename, ', angle:', angle)
     samples.append(Sample(filename, angle))
@@ -116,13 +121,14 @@ with open(input_dir + '/driving_log.csv') as csvfile:
         # center
         add_sample(line[0].split('/')[-1], angle)
         # left
-        #add_sample(line[1].split('/')[-1], angle + cam_offset)
+        add_sample(line[1].split('/')[-1], angle + cam_offset)
         # right
-        #add_sample(line[2].split('/')[-1], angle - cam_offset)
+        add_sample(line[2].split('/')[-1], angle - cam_offset)
 
 
 print('done loading images, {} samples, elapsed {:.3f}'.format(len(samples), time.time() - start_time))
 
+# Incrementally load batches of images for use with fit_generator.  Flip based on sample flag.
 def generator(samples, batch_size=32):
     num_samples = len(samples)
     while 1:
@@ -155,6 +161,7 @@ def generator(samples, batch_size=32):
             yield X_train, y_train
 
 
+# split the training and validation data
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 train_samples, validation_samples = train_test_split(samples, test_size=0.2)
@@ -168,6 +175,7 @@ else:
 print('samples per epoch:', samples_per_epoch)
 print('validation samples:', val_samples)
 
+# create the generators for training and validation data
 train_generator = generator(train_samples, batch_size=batch_size)
 validation_generator = generator(validation_samples, batch_size=batch_size)
 
@@ -176,9 +184,13 @@ print('input_shape:', input_shape)
 print('epochs:', epochs)
 print('batch size:', batch_size)
 
+# create the base model that includes image processing that's used by all
+# models
 model = Sequential()
 model.add(Cropping2D(cropping=((64,30), (0,0)), input_shape=input_shape))
 model.add(Lambda(lambda x: (x / 255.0) - 0.5))
+
+# Create a model
 
 #create_simple(model)
 #create_lenet(model)
@@ -193,8 +205,7 @@ es = EarlyStopping(monitor='val_loss', patience=0)
 #tb = TensorBoard(log_dir=output_dir + '/logs', histogram_freq=1, write_graph=False, write_images=True)
 callbacks = [es]
 
-# do multiple runs with a variety of hyperparams in one execution
-
+# train the model
 model.fit_generator(train_generator, samples_per_epoch=samples_per_epoch,
         validation_data=validation_generator,
         nb_val_samples=val_samples, nb_epoch=epochs,
