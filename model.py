@@ -1,10 +1,11 @@
 import argparse
 import csv
-import cv2
 import numpy as np
 import os
 import random
 import time
+
+from PIL import Image
 
 from keras.callbacks import EarlyStopping, TensorBoard
 from keras.models import Sequential
@@ -84,7 +85,7 @@ image_cache = {}
 
 def load_image(filename):
     file_path = input_dir + '/IMG/' + filename
-    return cv2.imread(file_path)
+    return np.asarray(Image.open(file_path, mode='r'))
 
 # get and image and optionally cache.  Caching images was implemented to work around a slow
 # data network on floydhub.
@@ -142,8 +143,6 @@ def generator(samples, batch_size=32):
             for batch_sample in batch_samples:
                 #print('loading:', batch_sample.filename, ', angle:', batch_sample.angle, ', flip:', batch_sample.flip)
                 file_path = input_dir + '/IMG/' + batch_sample.filename
-                # randomly flip the images for data augmentation
-                #center_image = cv2.imread(file_path)
                 center_image = get_image(batch_sample.filename)
                 center_angle = float(batch_sample.angle)
 
